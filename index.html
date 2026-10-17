@@ -1242,7 +1242,8 @@ body.ar .welcome::after{display:none}
 .tts-btn.speaking{background:var(--grad-primary);color:#fff;border-color:transparent;animation:ttsPulse 1.1s ease-in-out infinite}
 @keyframes ttsPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,102,255,.5)}50%{box-shadow:0 0 0 10px rgba(0,102,255,0)}}
 #ttsBtn.on{color:#fff;background:var(--grad-primary);border-color:transparent}
-.tts-warn{display:block;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);color:var(--text);font-size:13.5px;line-height:1.5}
+.tts-ok{display:block;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--good) 12%,transparent);border:1px solid color-mix(in srgb,var(--good) 40%,transparent);font-size:13.5px}
+.tts-warn{margin-top:2px;display:block;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);color:var(--text);font-size:13.5px;line-height:1.5}
 
 .st-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 .st-tools select{min-width:180px;max-width:360px}
@@ -1671,7 +1672,7 @@ const STAR = '<svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 
 /* ---------------- trạng thái ---------------- */
 const DEF = { mode: "both", dwellMs: 1100, margin: 0.14, hands: 2, qCount: 10, qTime: 20, sound: true, showCam: false,
   handStyle: "auto", handSize: 1, handOpacity: 0.92, smooth: 1.4, bgCam: 0.12, pinchOn: 0.3,
-  view: "ar", bgDim: 0.16, grab: true, theme: "dark", calibrated: false, tts: false, ttsOpts: true, ttsRate: 1, ttsVoice: "" };
+  view: "ar", bgDim: 0.16, grab: true, theme: "dark", calibrated: false, tts: false, ttsOpts: true, ttsRate: 1, ttsVoice: "", ttsEngine: "auto" };
 const S = Object.assign({}, DEF, store.get("lhvt2.settings", {}));
 let SETS = store.get("lhvt2.sets", null) || store.get("lhvt.sets", null);
 if (!Array.isArray(SETS) || !SETS.length) SETS = JSON.parse(JSON.stringify(SAMPLE_SETS));
@@ -2314,41 +2315,81 @@ function logQuiz(q, k) {
    ĐỌC CÂU HỎI THÀNH TIẾNG (v6.1) — dùng giọng đọc có sẵn của trình duyệt
    ========================================================== */
 const TTS = {
-  ok: typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined",
-  last: "", warned: false,
-  voices() { try { return this.ok ? speechSynthesis.getVoices() : []; } catch (e) { return []; } },
-  viVoices() { return this.voices().filter(v => /^vi/i.test(v.lang)); },
+  ok: true, // luôn có giọng trực tuyến; giọng của máy là tùy chọn
+  local: typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined",
+  last: "", noted: false, audio: null, queue: [], gen: 0,
+  voices() { try { return this.local ? speechSynthesis.getVoices() : []; } catch (e) { return []; } },
+  viVoices() { return this.voices().filter(v => /^vi/i.test(v.lang) || /vietnam|tiếng việt/i.test(v.name)); },
   voice() {
-    const vs = this.voices(), pref = S.ttsVoice && vs.find(v => v.voiceURI === S.ttsVoice);
-    if (pref) return pref;
-    const vi = vs.filter(v => /^vi/i.test(v.lang));
-    return vi.find(v => /natural|online|neural/i.test(v.name)) || vi.find(v => /google/i.test(v.name)) || vi[0] || null;
+    const vi = this.viVoices(), pref = S.ttsVoice && vi.find(v => v.voiceURI === S.ttsVoice);
+    return pref || vi.find(v => /natural|online|neural/i.test(v.name)) || vi.find(v => /google/i.test(v.name)) || vi[0] || null;
+  },
+  /* chọn nguồn: giọng tiếng Việt có sẵn trên máy, nếu không có thì dùng giọng trực tuyến */
+  engine() {
+    const want = S.ttsEngine || "auto";
+    if (want === "online") return "online";
+    if (want === "local") return this.local && this.voice() ? "local" : "online";
+    return this.local && this.voice() ? "local" : "online";
   },
   clean(t) {
     return String(t)
       .replace(/×/g, " nhân ").replace(/÷/g, " chia ")
       .replace(/(\d)\s*:\s*(\d)/g, "$1 chia $2")
       .replace(/(\d)\s*\+\s*(\d)/g, "$1 cộng $2")
-      .replace(/=\s*\?/g, " bằng bao nhiêu").replace(/=/g, " bằng ")
+      .replace(/=\s*\?/g, " bằng bao nhiêu?").replace(/=/g, " bằng ")
       .replace(/_{2,}/g, " chỗ trống ")
       .replace(/°\s*C/g, " độ C").replace(/%/g, " phần trăm").replace(/²/g, " bình phương").replace(/³/g, " lập phương")
       .replace(/→|>/g, ", ").replace(/\s+/g, " ").trim();
   },
-  say(text, force) {
-    if (!this.ok || !text || (!S.tts && !force)) return;
-    if (!this.voice() && !this.warned) { this.warned = true; toast("Máy này chưa có giọng đọc tiếng Việt. Hãy mở trang bằng Microsoft Edge, hoặc cài giọng Tiếng Việt trong cài đặt Windows.", 6000); }
-    try {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(this.clean(text)), v = this.voice();
-      u.lang = v?.lang || "vi-VN"; if (v) u.voice = v; u.rate = S.ttsRate || 1; u.pitch = 1;
-      u.onstart = () => $$(".tts-btn").forEach(b => b.classList.add("speaking"));
-      u.onend = u.onerror = () => $$(".tts-btn").forEach(b => b.classList.remove("speaking"));
-      setTimeout(() => speechSynthesis.speak(u), 60); // Chrome đôi khi bỏ câu nói ngay sau cancel()
-    } catch (e) {}
+  /* cắt câu dài thành từng đoạn ≤ 180 ký tự (giới hạn của giọng trực tuyến) */
+  chunks(t) {
+    const out = []; let cur = "";
+    for (const part of t.split(/(?<=[.?!;:,])\s+/)) {
+      if ((cur + " " + part).trim().length <= 180) { cur = (cur + " " + part).trim(); continue; }
+      if (cur) out.push(cur);
+      if (part.length <= 180) cur = part;
+      else { const words = part.split(" "); cur = ""; for (const w of words) { if ((cur + " " + w).length > 180) { out.push(cur.trim()); cur = w; } else cur += " " + w; } cur = cur.trim(); }
+    }
+    if (cur) out.push(cur);
+    return out;
   },
-  stop() { try { if (this.ok) speechSynthesis.cancel(); } catch (e) {} $$(".tts-btn").forEach(b => b.classList.remove("speaking")); }
+  mark(on_) { $$(".tts-btn").forEach(b => b.classList.toggle("speaking", on_)); },
+  say(text, force) {
+    if (!text || (!S.tts && !force)) return;
+    this.stop();
+    const t = this.clean(text), eng = this.engine(), my = ++this.gen;
+    if (eng === "local") {
+      try {
+        const u = new SpeechSynthesisUtterance(t), v = this.voice();
+        u.voice = v; u.lang = v.lang; u.rate = S.ttsRate || 1;
+        u.onstart = () => this.mark(true); u.onend = u.onerror = () => this.mark(false);
+        setTimeout(() => { if (my === this.gen) speechSynthesis.speak(u); }, 60); // Chrome đôi khi bỏ câu nói ngay sau cancel()
+        return;
+      } catch (e) {}
+    }
+    if (!this.noted && this.local && !this.voice()) { this.noted = true; toast("Máy chưa có giọng tiếng Việt, đang dùng giọng đọc trực tuyến (cần Internet).", 3500); }
+    this.queue = this.chunks(t); this.playNext(my);
+  },
+  playNext(my) {
+    if (my !== this.gen) return;
+    const part = this.queue.shift(); if (!part) { this.mark(false); return; }
+    const a = new Audio(); this.audio = a;
+    a.referrerPolicy = "no-referrer"; a.preload = "auto";
+    a.src = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=vi&ttsspeed=1&q=" + encodeURIComponent(part);
+    a.playbackRate = clamp(S.ttsRate || 1, .6, 1.6); a.preservesPitch = true;
+    a.onplay = () => this.mark(true);
+    a.onended = () => this.playNext(my);
+    a.onerror = () => { this.mark(false); if (my === this.gen) toast("Không tải được giọng đọc trực tuyến. Kiểm tra kết nối Internet, hoặc mở trang bằng Microsoft Edge để dùng giọng tiếng Việt có sẵn.", 5000); };
+    a.play().catch(err => { this.mark(false); if (err && err.name === "NotAllowedError") toast("Trình duyệt chặn phát âm thanh. Bấm vào trang một lần rồi thử lại.", 3000); });
+  },
+  stop() {
+    this.gen++; this.queue = [];
+    try { if (this.local) speechSynthesis.cancel(); } catch (e) {}
+    if (this.audio) { try { this.audio.pause(); this.audio.src = ""; } catch (e) {} this.audio = null; }
+    this.mark(false);
+  }
 };
-if (TTS.ok) try { speechSynthesis.onvoiceschanged = () => { if (screenName === "settings") $("#tts-voice-slot") && paintVoiceSel(); }; } catch (e) {}
+if (TTS.local) try { speechSynthesis.onvoiceschanged = () => { if (screenName === "settings") $("#tts-voice-slot") && paintVoiceSel(); }; } catch (e) {}
 const SPEAK_IC = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
 const MUTE_IC = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
 /* lấy nội dung câu hỏi đang hiện trên màn chơi */
@@ -2391,13 +2432,23 @@ function toggleTTS() {
 function paintVoiceSel() {
   const slot = $("#tts-voice-slot"); if (!slot) return;
   slot.innerHTML = "";
-  const vi = TTS.viVoices();
-  if (!TTS.ok) { slot.append(h("small", { class: "muted" }, "Trình duyệt này không hỗ trợ đọc thành tiếng. Hãy dùng Chrome hoặc Edge.")); return; }
-  if (!vi.length) { slot.append(h("small", { class: "tts-warn" }, "Chưa thấy giọng tiếng Việt trên máy này. Cách khắc phục: mở trang bằng Microsoft Edge (có sẵn giọng “HoaiMy” và “NamMinh”), hoặc vào Cài đặt Windows → Thời gian và ngôn ngữ → Giọng nói → Thêm giọng → Tiếng Việt.")); return; }
-  const cur = TTS.voice();
-  const sel = h("select", { id: "tts-voice", "aria-label": "Giọng đọc" }, vi.map(v => h("option", { value: v.voiceURI, selected: cur && v.voiceURI === cur.voiceURI }, v.name.replace(/^Microsoft\s+/, "").replace(/\s+Online.*$/, " (trực tuyến)"))));
-  sel.addEventListener("change", () => { S.ttsVoice = sel.value; saveS(); TTS.say("Xin chào các em. Câu hỏi số một.", true); });
-  slot.append(h("label", { class: "field", for: "tts-voice" }, h("span", {}, "Giọng đọc"), sel));
+  const vi = TTS.viVoices(), eng = S.ttsEngine || "auto";
+  const engSel = h("select", { id: "tts-engine", "aria-label": "Nguồn giọng đọc" },
+    [["auto", "Tự động (ưu tiên giọng của máy)"], ["online", "Giọng trực tuyến của Google (cần Internet)"], ["local", "Chỉ dùng giọng có sẵn trên máy"]].map(([v, l]) => h("option", { value: v, selected: eng === v }, l)));
+  engSel.addEventListener("change", () => { S.ttsEngine = engSel.value; saveS(); paintVoiceSel(); TTS.say("Xin chào các em. Câu hỏi số một.", true); });
+  slot.append(h("label", { class: "field", for: "tts-engine" }, h("span", {}, "Nguồn giọng đọc"), engSel));
+  const status = TTS.engine() === "local"
+    ? h("small", { class: "tts-ok" }, `Đang dùng giọng có sẵn trên máy: ${TTS.voice()?.name || ""}`)
+    : h("small", { class: "tts-warn" }, vi.length
+        ? "Đang dùng giọng trực tuyến của Google (cần Internet)."
+        : "Máy này chưa có giọng tiếng Việt, nên web dùng giọng trực tuyến của Google (cần Internet). Muốn đọc được cả khi mất mạng: mở trang bằng Microsoft Edge (có sẵn giọng HoaiMy, NamMinh), hoặc vào Cài đặt Windows → Thời gian và ngôn ngữ → Giọng nói → Thêm giọng → Tiếng Việt.");
+  slot.append(status);
+  if (vi.length && TTS.engine() === "local") {
+    const cur = TTS.voice();
+    const sel = h("select", { id: "tts-voice", "aria-label": "Giọng đọc" }, vi.map(v => h("option", { value: v.voiceURI, selected: cur && v.voiceURI === cur.voiceURI }, v.name.replace(/^Microsoft\s+/, "").replace(/\s+Online.*$/, " (trực tuyến)"))));
+    sel.addEventListener("change", () => { S.ttsVoice = sel.value; saveS(); TTS.say("Xin chào các em. Câu hỏi số một.", true); });
+    slot.append(h("label", { class: "field", for: "tts-voice", style: "margin-top:10px" }, h("span", {}, "Giọng đọc trên máy"), sel));
+  }
 }
 function ttsSettings(range, check) {
   const box = h("div", { class: "stack", style: "gap:14px;padding-top:6px;border-top:1px solid var(--border)" },
