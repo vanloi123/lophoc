@@ -1281,6 +1281,37 @@ body.ar .welcome::after{display:none}
 @media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:760px){.qrow{grid-template-columns:34px minmax(0,1fr);padding:12px 14px}.qrate{grid-column:2}.st-tools select{min-width:0;flex:1}}
 
+
+/* ================= v6.2 — tinh chỉnh chữ & bố cục ================= */
+/* tận dụng màn hình rộng (máy chiếu) */
+.wrap{max-width:1560px}
+.game{max-width:1600px}
+@media (min-width:1700px){body{font-size:16px}.wrap{max-width:1640px}.welcome p.lead{font-size:16.5px}.gdesc{font-size:15px}}
+/* tiêu đề không bị ngắt lẻ chữ */
+.welcome h2 em{white-space:nowrap}
+h1,h2,h3{text-wrap:balance}
+p,.gdesc,.lead{text-wrap:pretty}
+/* khối chào mừng: khung camera giãn theo chiều cao, không còn khoảng trống chết */
+@media (min-width:901px){
+  .welcome{justify-content:flex-start}
+  .wl-top{flex:1;align-items:stretch;grid-template-columns:minmax(0,1fr) minmax(280px,40%)}
+  .wl-top>div:first-child{align-self:center}
+  .welcome .stage-pv{aspect-ratio:auto;height:100%;min-height:240px}
+}
+@media (min-width:901px) and (max-width:1100px){.wl-top{grid-template-columns:minmax(0,1fr) 240px}}
+/* điện thoại: tiêu đề trang chiếm trọn một hàng, ẩn nút thu gọn menu */
+@media (max-width:900px){.rail-toggle{display:none}}
+@media (max-width:640px){
+  .topbar{gap:10px;row-gap:10px}
+  .tb-title{flex:1 1 calc(100% - 60px)}
+  .tb-title h1{font-size:18px}
+  .hud,.tb-tools{flex-wrap:wrap}
+  .welcome h2{font-size:28px}
+}
+/* chữ nhỏ dễ đọc hơn */
+.muted,.gdesc,.lr-meta,.qa{line-height:1.5}
+.tb-title p{font-size:12.5px}
+
 </style>
 </head>
 <body>
@@ -4140,7 +4171,7 @@ function SetsPage(opts = {}) {
       const fbtn = (label, n, active, fn, dot) => on(h("button", { class: "fl" + (active ? " active" : ""), "data-hit": true }, dot ? h("i", { class: "fdot", style: `background:${dot}` }) : null, h("span", {}, label), n != null ? h("small", {}, n) : null), () => { fn(); sel.clear(); saveLib(); draw(); });
       const subjects = [...new Set(live.map(s => s.subject).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
       const grades = [...new Set(live.map(s => s.grade).filter(Boolean))].sort((a, b) => GRADES.indexOf(a) - GRADES.indexOf(b) || a.localeCompare(b, "vi"));
-      const search = h("input", { type: "search", id: "lib-q", class: "sp-search", placeholder: "Tìm theo tên, môn, chủ đề, nhãn…", value: LIB.q });
+      const search = h("input", { type: "search", id: "lib-q", class: "sp-search", placeholder: "Tìm bộ đề…", title: "Tìm theo tên, môn, chủ đề hoặc nhãn", value: LIB.q });
       search.addEventListener("input", () => { LIB.q = search.value; paintMain(); });
       const nActive = [LIB.view !== "all", LIB.time, LIB.subject, LIB.grade].filter(Boolean).length;
       const det = h("details", { class: "lib-filters", open: innerWidth > 1000 || undefined }, h("summary", {}, "Bộ lọc", nActive ? h("span", { class: "badge cur" }, `${nActive} đang bật`) : null));
